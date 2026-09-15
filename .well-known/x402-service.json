@@ -1,0 +1,16 @@
+{
+  "x402": "1.0",
+  "name": "Web Page Intelligence",
+  "capabilities": ["web-page-analysis", "seo-signals", "html-content"],
+  "pricing": {
+    "currency": "USDC",
+    "base": "0.001",
+    "unit": "request"
+  },
+  "payment": {
+    "address": "0x6282bc40c8dc8868570C231b03EB0ECDfa9Cbf18",
+    "chain": "base",
+    "facilitator": "https://pay.openfacilitator.io"
+  },
+  "endpoint": "https://a2a-service-bot.onrender.com/v1/analyze"
+}

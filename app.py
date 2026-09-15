@@ -1,20 +1,33 @@
-"""Web Page Intelligence: a small, dependency-light web page analyzer."""
+"""Web Page Intelligence with x402 pay-per-call protection."""
 from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import socket
 from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
 from flask import Flask, jsonify, render_template, request
+from x402 import x402ResourceServerSync
+from x402.http import FacilitatorConfig, HTTPFacilitatorClientSync, PaymentOption, RouteConfig
+from x402.http.middleware import FlaskPaymentMiddleware
+from x402.mechanisms.evm.exact import ExactEvmServerScheme
 
 app = Flask(__name__)
 app.config["JSON_SORT_KEYS"] = False
 
-USER_AGENT = "WebPageIntelligence/1.0 (+https://github.com/)"
+USER_AGENT = "WebPageIntelligence/1.1 (+https://a2a-service-bot.onrender.com)"
 MAX_HTML_BYTES = 2_000_000
+X402_NETWORK = "eip155:8453"
+X402_PRICE = "$0.001"
+X402_CURRENCY = "USDC"
+X402_CHAIN = "base"
+FACILITATOR_URL = os.environ.get("X402_FACILITATOR_URL", "https://pay.openfacilitator.io")
+# Public address only. The corresponding private key is never needed by the seller
+# for facilitator-mediated EIP-3009 settlement and is never stored in this repo.
+PAY_TO = os.environ.get("X402_PAY_TO", "0x6282bc40c8dc8868570C231b03EB0ECDfa9Cbf18")
 
 
 def _validate_public_url(raw_url: str) -> str:
@@ -54,8 +67,7 @@ def analyze_html(html: str, source_url: str | None = None) -> dict:
     }
     links = []
     for anchor in soup.find_all("a", href=True):
-        text = anchor.get_text(" ", strip=True)
-        links.append({"text": text, "href": anchor["href"]})
+        links.append({"text": anchor.get_text(" ", strip=True), "href": anchor["href"]})
     for tag in soup(["script", "style", "noscript", "template"]):
         tag.decompose()
     text = " ".join(soup.get_text(" ", strip=True).split())
@@ -128,7 +140,7 @@ def agent_card():
         "name": "Web Page Intelligence",
         "description": "Analyze public HTML pages for content and basic SEO signals.",
         "url": request.url_root.rstrip("/"),
-        "version": "1.0.0",
+        "version": "1.1.0",
         "capabilities": {"streaming": False},
         "skills": [{
             "id": "analyze-web-page",
@@ -140,9 +152,35 @@ def agent_card():
     })
 
 
+@app.get("/.well-known/x402-service.json")
+def x402_manifest():
+    return jsonify({
+        "x402": "1.0",
+        "name": "Web Page Intelligence",
+        "capabilities": ["web-page-analysis", "seo-signals", "html-content"],
+        "pricing": {"currency": "USDC", "base": "0.001", "unit": "request"},
+        "payment": {
+            "address": PAY_TO,
+            "chain": X402_CHAIN,
+            "facilitator": FACILITATOR_URL,
+        },
+        "endpoint": "https://a2a-service-bot.onrender.com/v1/analyze",
+    })
+
+
 @app.post("/api/analyze")
+def free_legacy_analyze_endpoint():
+    """Legacy free endpoint retained for compatibility; paid route is /v1/analyze."""
+    return _run_analysis()
+
+
 @app.post("/v1/analyze")
 def analyze_endpoint():
+    """Paid x402 endpoint; middleware validates and settles before this runs."""
+    return _run_analysis()
+
+
+def _run_analysis():
     payload = request.get_json(silent=True) or {}
     try:
         if payload.get("html") is not None:
@@ -161,14 +199,36 @@ def analyze_endpoint():
 
 @app.errorhandler(404)
 def not_found(_error):
-    if request.path.startswith("/api/"):
+    if request.path.startswith("/api/") or request.path.startswith("/v1/"):
         return jsonify({"ok": False, "error": "Not found."}), 404
     return render_template("index.html"), 404
 
 
+# x402 v2 exact payment configuration for Base mainnet + USDC.
+_facilitator = HTTPFacilitatorClientSync(FacilitatorConfig(url=FACILITATOR_URL))
+_resource_server = x402ResourceServerSync(_facilitator)
+_resource_server.register(X402_NETWORK, ExactEvmServerScheme())
+_routes = {
+    "POST /v1/analyze": RouteConfig(
+        accepts=PaymentOption(
+            scheme="exact",
+            pay_to=PAY_TO,
+            price=X402_PRICE,
+            network=X402_NETWORK,
+            max_timeout_seconds=300,
+        ),
+        resource="https://a2a-service-bot.onrender.com/v1/analyze",
+        description="Analyze a public HTML page and return structured content and SEO signals.",
+        mime_type="application/json",
+        service_name="Web Page Intelligence",
+        tags=["web", "seo", "html", "content"],
+    )
+}
+FlaskPaymentMiddleware(app, _routes, _resource_server)
+
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=False)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=False)
 
 
-# Keep json imported for simple deployment smoke checks and agent integrations.
 _ = json
