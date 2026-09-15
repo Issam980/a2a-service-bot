@@ -141,6 +141,7 @@ def agent_card():
 
 
 @app.post("/api/analyze")
+@app.post("/v1/analyze")
 def analyze_endpoint():
     payload = request.get_json(silent=True) or {}
     try:
