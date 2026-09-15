@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Web Page Intelligence</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, system-ui, -apple-system, sans-serif; }
+    body { margin: 0; background: #f5f7fb; color: #172033; }
+    main { max-width: 960px; margin: 0 auto; padding: 56px 20px; }
+    .hero { margin-bottom: 28px; }
+    h1 { margin: 0 0 10px; font-size: clamp(2rem, 5vw, 3.5rem); letter-spacing: -.04em; }
+    p { color: #5e6a7d; line-height: 1.6; }
+    .card { background: white; border: 1px solid #e3e8f0; border-radius: 18px; padding: 24px; box-shadow: 0 12px 32px rgba(28, 44, 75, .07); }
+    form { display: flex; gap: 12px; flex-wrap: wrap; }
+    input { flex: 1 1 520px; min-width: 0; border: 1px solid #cad3e0; border-radius: 10px; padding: 14px 16px; font: inherit; }
+    button { border: 0; border-radius: 10px; padding: 14px 22px; background: #3157d5; color: white; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: wait; }
+    #status { min-height: 24px; margin: 18px 0 0; }
+    .error { color: #b42318; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-top: 22px; }
+    .metric { background: #f8faff; border-radius: 12px; padding: 16px; }
+    .metric strong { display: block; font-size: 1.5rem; margin-top: 5px; }
+    pre { overflow: auto; background: #111827; color: #dbeafe; padding: 18px; border-radius: 12px; line-height: 1.5; }
+    .hidden { display: none; }
+  </style>
+</head>
+<body>
+<main>
+  <section class="hero">
+    <p>AI-ready developer tool</p>
+    <h1>Web Page Intelligence</h1>
+    <p>Fetch a public web page and inspect its title, description, headings, links, images, and basic SEO signals.</p>
+  </section>
+  <section class="card">
+    <form id="analyze-form">
+      <input id="url" name="url" type="url" required placeholder="https://example.com" aria-label="Public page URL">
+      <button id="submit" type="submit">Analyze page</button>
+    </form>
+    <p id="status" role="status"></p>
+    <div id="results" class="hidden">
+      <div class="grid" id="metrics"></div>
+      <h2>Structured result</h2>
+      <pre id="json"></pre>
+    </div>
+  </section>
+</main>
+<script>
+  const form = document.querySelector('#analyze-form');
+  const button = document.querySelector('#submit');
+  const status = document.querySelector('#status');
+  const results = document.querySelector('#results');
+  const metrics = document.querySelector('#metrics');
+  const json = document.querySelector('#json');
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    status.className = '';
+    status.textContent = 'Analyzing…';
+    results.classList.add('hidden');
+    try {
+      const response = await fetch('/api/analyze', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url: document.querySelector('#url').value})
+      });
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error || 'Analysis failed.');
+      const item = payload.result;
+      metrics.innerHTML = [
+        ['Title length', item.title_length], ['Description length', item.description_length],
+        ['Word count', item.word_count], ['Links', item.links_count],
+        ['Images', item.images_count], ['Missing alt', item.images_missing_alt]
+      ].map(([label, value]) => `<div class="metric"><span>${label}</span><strong>${value}</strong></div>`).join('');
+      json.textContent = JSON.stringify(item, null, 2);
+      results.classList.remove('hidden');
+      status.textContent = 'Analysis complete.';
+    } catch (error) {
+      status.className = 'error';
+      status.textContent = error.message;
+    } finally { button.disabled = false; }
+  });
+</script>
+</body>
+</html>
